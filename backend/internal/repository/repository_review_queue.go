@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gbtreehole/backend/internal/constants"
 	"github.com/gbtreehole/backend/internal/model"
 	"gorm.io/gorm"
 )
@@ -13,6 +14,7 @@ type ReviewQueueRepository interface {
 	Update(item *model.ReviewQueue) error
 	FindByID(id uint) (*model.ReviewQueue, error)
 	List(page, pageSize int, status int) ([]model.ReviewQueue, int64, error)
+	WithdrawPendingByTarget(targetType string, targetID uint) (int64, error)
 }
 
 type reviewQueueRepository struct {
@@ -62,4 +64,15 @@ func (r *reviewQueueRepository) List(page, pageSize int, status int) ([]model.Re
 		return nil, 0, fmt.Errorf("list review queue: %w", err)
 	}
 	return items, total, nil
+}
+
+// WithdrawPendingByTarget 将目标内容对应的待审核条目标记为撤回，使其从审核队列消失。
+func (r *reviewQueueRepository) WithdrawPendingByTarget(targetType string, targetID uint) (int64, error) {
+	result := r.db.Model(&model.ReviewQueue{}).
+		Where("target_type = ? AND target_id = ? AND status = ?", targetType, targetID, constants.ReviewStatusPending).
+		Update("status", constants.ReviewStatusWithdrawn)
+	if result.Error != nil {
+		return 0, fmt.Errorf("withdraw pending review by target: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }

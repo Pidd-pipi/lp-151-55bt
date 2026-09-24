@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -36,6 +37,10 @@ func (h *LikeHandler) ToggleLike(c *gin.Context) {
 	}
 	liked, count, err := h.likes.Toggle(identityID, req.TargetType, req.TargetID)
 	if err != nil {
+		if errors.Is(err, service.ErrTargetWithdrawn) {
+			Fail(c, http.StatusConflict, constants.CodeConflict, "content already withdrawn")
+			return
+		}
 		h.logger.Error("toggle like", "error", err)
 		Fail(c, http.StatusInternalServerError, constants.CodeInternal, "toggle like failed")
 		return

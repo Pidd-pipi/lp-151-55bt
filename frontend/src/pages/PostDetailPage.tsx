@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Card, Space, Typography, Button, Input, List, message, Tag, Avatar } from 'antd'
-import { LikeOutlined, CommentOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, Space, Typography, Button, Input, List, message, Tag, Avatar, Popconfirm, Empty } from 'antd'
+import { LikeOutlined, CommentOutlined, EyeOutlined, RollbackOutlined } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
-import { request } from '../api/client'
+import { ApiError, request } from '../api/client'
 import type { Comment, PageResult, Post } from '../types'
 import { getIdentity } from '../utils/storage'
 
@@ -12,6 +12,8 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [commentText, setCommentText] = useState('')
+  const [notFound, setNotFound] = useState(false)
+  const me = getIdentity()
 
   const load = async () => {
     try {
@@ -20,6 +22,11 @@ export default function PostDetailPage() {
       const commentData = await request<PageResult<Comment>>('get', `/posts/${id}/comments`, { page: 1, page_size: 20 })
       setComments(commentData.items)
     } catch (e) {
+      // 帖子被撤回或不存在时详情不再可访问
+      if (e instanceof ApiError && e.status === 404) {
+        setNotFound(true)
+        return
+      }
       message.error((e as Error).message)
     }
   }
@@ -70,6 +77,46 @@ export default function PostDetailPage() {
     }
   }
 
+  const withdrawPost = async () => {
+    try {
+      await request('post', `/posts/${id}/withdraw`)
+      message.success('帖子已撤回')
+      navigate('/')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        message.info('该帖子已撤回，无需重复操作')
+        navigate('/')
+        return
+      }
+      message.error((e as Error).message)
+    }
+  }
+
+  const withdrawComment = async (commentId: number) => {
+    try {
+      await request('post', `/comments/${commentId}/withdraw`)
+      message.success('评论已撤回')
+      load()
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        message.info('该评论已撤回，无需重复操作')
+        load()
+        return
+      }
+      message.error((e as Error).message)
+    }
+  }
+
+  if (notFound) {
+    return (
+      <Card>
+        <Empty description="帖子不存在或已被作者撤回">
+          <Button type="primary" onClick={() => navigate('/')}>返回首页</Button>
+        </Empty>
+      </Card>
+    )
+  }
+
   if (!post) return <Typography.Text>加载中...</Typography.Text>
 
   return (
@@ -101,6 +148,17 @@ export default function PostDetailPage() {
               </Button>
               <Typography.Text type="secondary"><CommentOutlined /> {post.commentCount}</Typography.Text>
               <Typography.Text type="secondary"><EyeOutlined /> {post.viewCount}</Typography.Text>
+              {me?.id === post.identityId && (
+                <Popconfirm
+                  title="确认撤回这条帖子吗？"
+                  description="撤回后将从所有列表移除，且无法恢复"
+                  okText="确认撤回"
+                  cancelText="取消"
+                  onConfirm={withdrawPost}
+                >
+                  <Button type="text" danger icon={<RollbackOutlined />}>撤回</Button>
+                </Popconfirm>
+              )}
             </Space>
           </div>
         </Space>
@@ -121,6 +179,19 @@ export default function PostDetailPage() {
                 <Button key="like" type="text" icon={<LikeOutlined />} onClick={() => likeComment(item.id)}>
                   {item.likeCount}
                 </Button>,
+                ...(me?.id === item.identityId
+                  ? [
+                      <Popconfirm
+                        key="withdraw"
+                        title="确认撤回这条评论吗？"
+                        okText="确认撤回"
+                        cancelText="取消"
+                        onConfirm={() => withdrawComment(item.id)}
+                      >
+                        <Button type="text" danger size="small">撤回</Button>
+                      </Popconfirm>,
+                    ]
+                  : []),
               ]}
             >
               <List.Item.Meta

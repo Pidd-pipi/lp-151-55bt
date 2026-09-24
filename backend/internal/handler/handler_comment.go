@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -91,6 +92,36 @@ func (h *CommentHandler) ListComments(c *gin.Context) {
 		items = append(items, toCommentResponse(&cm, likedMap[cm.ID]))
 	}
 	OK(c, dto.PageResult{Items: items, Total: total, Page: req.Page, PageSize: req.PageSize})
+}
+
+// WithdrawComment 作者撤回评论
+// @Summary 撤回评论
+// @Tags comment
+// @Produce json
+// @Param id path int true "评论ID"
+// @Success 200 {object} Response
+// @Router /api/v1/comments/{id}/withdraw [post]
+func (h *CommentHandler) WithdrawComment(c *gin.Context) {
+	identityID := c.GetUint("identityId")
+	id := parseID(c)
+	if id == 0 {
+		return
+	}
+	if err := h.comments.Withdraw(identityID, id); err != nil {
+		switch {
+		case errors.Is(err, service.ErrCommentNotFound):
+			Fail(c, http.StatusNotFound, constants.CodeNotFound, "comment not found")
+		case errors.Is(err, service.ErrWithdrawForbidden):
+			Fail(c, http.StatusForbidden, constants.CodeForbidden, "can only withdraw your own comment")
+		case errors.Is(err, service.ErrAlreadyWithdrawn):
+			Fail(c, http.StatusConflict, constants.CodeConflict, "comment already withdrawn")
+		default:
+			h.logger.Error("withdraw comment", "error", err)
+			Fail(c, http.StatusInternalServerError, constants.CodeInternal, "withdraw comment failed")
+		}
+		return
+	}
+	OK(c, gin.H{"id": id, "status": constants.CommentStatusWithdrawn})
 }
 
 func toCommentResponse(comment *model.Comment, liked bool) dto.CommentResponse {

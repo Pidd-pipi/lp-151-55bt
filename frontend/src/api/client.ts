@@ -6,6 +6,18 @@ export interface ApiResponse<T = unknown> {
   data: T
 }
 
+export class ApiError extends Error {
+  code?: number
+  status?: number
+
+  constructor(message: string, code?: number, status?: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+    this.status = status
+  }
+}
+
 export const client = axios.create({
   baseURL: '/api/v1',
   timeout: 15000,
@@ -30,13 +42,24 @@ client.interceptors.response.use(
 )
 
 export async function request<T>(method: 'get' | 'post' | 'delete', url: string, data?: unknown): Promise<T> {
-  const response = await client.request<ApiResponse<T>>({
-    method,
-    url,
-    ...(method === 'get' ? { params: data } : { data }),
-  })
-  if (response.data.code !== 0) {
-    throw new Error(response.data.message || '请求失败')
+  try {
+    const response = await client.request<ApiResponse<T>>({
+      method,
+      url,
+      ...(method === 'get' ? { params: data } : { data }),
+    })
+    if (response.data.code !== 0) {
+      throw new ApiError(response.data.message || '请求失败', response.data.code, response.status)
+    }
+    return response.data.data
+  } catch (err) {
+    // 后端返回的业务错误（如 409 已撤回）转换为带状态码的 ApiError，便于页面提示
+    if (axios.isAxiosError(err)) {
+      const body = err.response?.data as ApiResponse | undefined
+      if (body?.message) {
+        throw new ApiError(body.message, body.code, err.response?.status)
+      }
+    }
+    throw err
   }
-  return response.data.data
 }

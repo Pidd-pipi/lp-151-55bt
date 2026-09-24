@@ -89,7 +89,7 @@ paths:
           description: 帖子数组
   /api/v1/posts/{id}:
     get:
-      summary: 帖子详情
+      summary: 帖子详情（已撤回帖子返回 404）
       parameters:
         - in: path
           name: id
@@ -98,6 +98,42 @@ paths:
       responses:
         '200':
           description: 帖子详情
+  /api/v1/posts/{id}/withdraw:
+    post:
+      summary: 作者撤回帖子（需登录）
+      description: 撤回后帖子退出最新/热度/精选/标签列表，详情不可访问，审核队列中的对应条目一并撤下。仅作者本人可撤回，重复撤回返回 409。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 撤回结果
+        '403':
+          description: 非作者不能撤回
+        '404':
+          description: 帖子不存在
+        '409':
+          description: 帖子已撤回
+  /api/v1/comments/{id}/withdraw:
+    post:
+      summary: 作者撤回评论（需登录）
+      description: 撤回后评论从楼层消失、帖子评论数同步减少，审核队列中的对应条目一并撤下。仅作者本人可撤回，重复撤回返回 409。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 撤回结果
+        '403':
+          description: 非作者不能撤回
+        '404':
+          description: 评论不存在
+        '409':
+          description: 评论已撤回
   /api/v1/posts/{id}/comments:
     get:
       summary: 帖子评论列表

@@ -17,6 +17,7 @@ type ReviewService interface {
 	List(page, pageSize int, status int) ([]model.ReviewQueue, int64, error)
 	Approve(queueID uint, adminID uint, note string) error
 	Reject(queueID uint, adminID uint, note string) error
+	WithdrawByTarget(targetType string, targetID uint) error
 }
 
 type reviewService struct {
@@ -46,6 +47,14 @@ func (s *reviewService) Enqueue(targetType string, targetID uint, content string
 
 func (s *reviewService) List(page, pageSize int, status int) ([]model.ReviewQueue, int64, error) {
 	return s.queue.List(page, pageSize, status)
+}
+
+// WithdrawByTarget 内容撤回后同步撤下审核队列中的待审条目。
+func (s *reviewService) WithdrawByTarget(targetType string, targetID uint) error {
+	if _, err := s.queue.WithdrawPendingByTarget(targetType, targetID); err != nil {
+		return fmt.Errorf("withdraw review for %s %d: %w", targetType, targetID, err)
+	}
+	return nil
 }
 
 func (s *reviewService) Approve(queueID uint, adminID uint, note string) error {

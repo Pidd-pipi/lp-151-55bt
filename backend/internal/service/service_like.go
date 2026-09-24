@@ -5,6 +5,7 @@ import (
 
 	"log/slog"
 
+	"github.com/gbtreehole/backend/internal/constants"
 	"github.com/gbtreehole/backend/internal/model"
 	"github.com/gbtreehole/backend/internal/repository"
 )
@@ -38,6 +39,12 @@ func (s *likeService) Toggle(identityID uint, targetType string, targetID uint) 
 	if !errors.Is(err, repository.ErrNotFound) {
 		return false, 0, err
 	}
+	// 已撤回的内容不能再点赞。
+	if withdrawn, err := s.isTargetWithdrawn(targetType, targetID); err != nil {
+		return false, 0, err
+	} else if withdrawn {
+		return false, 0, ErrTargetWithdrawn
+	}
 	like := &model.Like{IdentityID: identityID, TargetType: targetType, TargetID: targetID}
 	if err := s.likes.Create(like); err != nil {
 		return false, 0, err
@@ -48,6 +55,32 @@ func (s *likeService) Toggle(identityID uint, targetType string, targetID uint) 
 		return false, 0, err
 	}
 	return true, count, nil
+}
+
+// isTargetWithdrawn 判断目标帖子/评论是否已撤回；目标不存在时不允许点赞。
+func (s *likeService) isTargetWithdrawn(targetType string, targetID uint) (bool, error) {
+	switch targetType {
+	case "post":
+		post, err := s.posts.FindByID(targetID)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return true, nil
+			}
+			return false, err
+		}
+		return post.Status == constants.PostStatusWithdrawn, nil
+	case "comment":
+		comment, err := s.comments.FindByID(targetID)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return true, nil
+			}
+			return false, err
+		}
+		return comment.Status == constants.CommentStatusWithdrawn, nil
+	default:
+		return false, nil
+	}
 }
 
 func (s *likeService) adjustCount(targetType string, targetID uint, delta int) {

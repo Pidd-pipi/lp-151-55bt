@@ -16,6 +16,7 @@ var ErrCommentNotFound = errors.New("comment not found")
 type CommentService interface {
 	Create(identityID, postID uint, content string) (*model.Comment, []string, bool, error)
 	ListByPostID(postID uint, page, pageSize int) ([]model.Comment, int64, error)
+	Withdraw(identityID, commentID uint) error
 }
 
 type commentService struct {
@@ -72,4 +73,49 @@ func (s *commentService) Create(identityID, postID uint, content string) (*model
 
 func (s *commentService) ListByPostID(postID uint, page, pageSize int) ([]model.Comment, int64, error) {
 	return s.comments.ListByPostID(postID, page, pageSize, constants.CommentStatusPublished)
+}
+
+// Withdraw 作者撤回评论：从楼层消失、帖子评论数同步减少，并撤下审核队列中的对应条目。
+func (s *commentService) Withdraw(identityID, commentID uint) error {
+	comment, err := s.comments.FindByID(commentID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrCommentNotFound
+		}
+		return err
+	}
+	if comment.IdentityID != identityID {
+		return ErrWithdrawForbidden
+	}
+	if comment.Status == constants.CommentStatusWithdrawn {
+		return ErrAlreadyWithdrawn
+	}
+	// 待审核评论从未计入帖子评论数，撤回时不需要再递减。
+	wasPublished := comment.Status == constants.CommentStatusPublished
+	comment.Status = constants.CommentStatusWithdrawn
+	comment.UpdatedAt = time.Now()
+	if err := s.comments.Update(comment); err != nil {
+		return fmt.Errorf("withdraw comment %d: %w", commentID, err)
+	}
+	if wasPublished {
+		post, err := s.posts.FindByID(comment.PostID)
+		if err != nil {
+			if !errors.Is(err, repository.ErrNotFound) {
+				return fmt.Errorf("load post for comment withdraw: %w", err)
+			}
+		} else {
+			post.CommentCount--
+			if post.CommentCount < 0 {
+				post.CommentCount = 0
+			}
+			post.UpdatedAt = time.Now()
+			if err := s.posts.Update(post); err != nil {
+				return fmt.Errorf("decrease post comment count: %w", err)
+			}
+		}
+	}
+	if err := s.review.WithdrawByTarget("comment", commentID); err != nil {
+		s.logger.Error("withdraw comment review item", "commentId", commentID, "error", err)
+	}
+	return nil
 }

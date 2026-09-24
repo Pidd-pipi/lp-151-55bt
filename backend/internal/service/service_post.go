@@ -14,6 +14,13 @@ import (
 
 var ErrPostNotFound = errors.New("post not found")
 
+// 撤回相关哨兵错误，帖子与评论服务共用。
+var (
+	ErrWithdrawForbidden = errors.New("only the author can withdraw content")
+	ErrAlreadyWithdrawn  = errors.New("content already withdrawn")
+	ErrTargetWithdrawn   = errors.New("target content already withdrawn")
+)
+
 type PostService interface {
 	Create(identityID uint, title, content string, images []string, tagNames []string) (*model.Post, []string, bool, error)
 	GetByID(id uint) (*model.Post, error)
@@ -23,6 +30,7 @@ type PostService interface {
 	DailyFeatured(limit int) ([]model.Post, error)
 	IncrementView(id uint) error
 	SetFeatured(id uint, featured bool) error
+	Withdraw(identityID, postID uint) error
 }
 
 type postService struct {
@@ -92,6 +100,10 @@ func (s *postService) GetByID(id uint) (*model.Post, error) {
 		}
 		return nil, err
 	}
+	// 已撤回的帖子详情不再对外可见。
+	if post.Status == constants.PostStatusWithdrawn {
+		return nil, ErrPostNotFound
+	}
 	return post, nil
 }
 
@@ -158,4 +170,32 @@ func (s *postService) SetFeatured(id uint, featured bool) error {
 	}
 	post.UpdatedAt = time.Now()
 	return s.posts.Update(post)
+}
+
+// Withdraw 作者撤回帖子：撤回后退出所有列表、详情不可访问，并撤下审核队列中的对应条目。
+func (s *postService) Withdraw(identityID, postID uint) error {
+	post, err := s.posts.FindByID(postID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrPostNotFound
+		}
+		return err
+	}
+	if post.IdentityID != identityID {
+		return ErrWithdrawForbidden
+	}
+	if post.Status == constants.PostStatusWithdrawn {
+		return ErrAlreadyWithdrawn
+	}
+	post.Status = constants.PostStatusWithdrawn
+	post.IsFeatured = false
+	post.FeaturedAt = nil
+	post.UpdatedAt = time.Now()
+	if err := s.posts.Update(post); err != nil {
+		return fmt.Errorf("withdraw post %d: %w", postID, err)
+	}
+	if err := s.review.WithdrawByTarget("post", postID); err != nil {
+		s.logger.Error("withdraw post review item", "postId", postID, "error", err)
+	}
+	return nil
 }

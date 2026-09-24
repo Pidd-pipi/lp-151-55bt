@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Card, Tabs, Tag, Space, Typography, Button, Empty, message, Row, Col } from 'antd'
-import { LikeOutlined, CommentOutlined, EyeOutlined, FireOutlined, StarOutlined } from '@ant-design/icons'
+import { Card, Tabs, Tag, Space, Typography, Button, Empty, message, Row, Col, Popconfirm } from 'antd'
+import { LikeOutlined, CommentOutlined, EyeOutlined, FireOutlined, StarOutlined, RollbackOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { request } from '../api/client'
+import { ApiError, request } from '../api/client'
 import type { PageResult, Post } from '../types'
 import { getIdentity } from '../utils/storage'
 
@@ -12,6 +12,7 @@ export default function FeedPage() {
   const [featured, setFeatured] = useState<Post[]>([])
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState<'latest' | 'hot'>('latest')
+  const me = getIdentity()
 
   const load = async (mode: 'latest' | 'hot') => {
     setLoading(true)
@@ -58,6 +59,23 @@ export default function FeedPage() {
     }
   }
 
+  const withdraw = async (postId: number) => {
+    try {
+      await request('post', `/posts/${postId}/withdraw`)
+      message.success('帖子已撤回')
+      load(view)
+      loadFeatured()
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        message.info('该帖子已撤回，无需重复操作')
+        load(view)
+        loadFeatured()
+        return
+      }
+      message.error((err as Error).message)
+    }
+  }
+
   const renderPost = (post: Post) => (
     <Card
       key={post.id}
@@ -93,6 +111,19 @@ export default function FeedPage() {
               <Typography.Text type="secondary"><CommentOutlined /> {post.commentCount}</Typography.Text>
               <Typography.Text type="secondary"><EyeOutlined /> {post.viewCount}</Typography.Text>
               {post.isFeatured && <Typography.Text type="warning"><StarOutlined /> 精选</Typography.Text>}
+              {me?.id === post.identityId && (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <Popconfirm
+                    title="确认撤回这条帖子吗？"
+                    description="撤回后将从所有列表移除，且无法恢复"
+                    okText="确认撤回"
+                    cancelText="取消"
+                    onConfirm={() => withdraw(post.id)}
+                  >
+                    <Button size="small" type="text" danger icon={<RollbackOutlined />}>撤回</Button>
+                  </Popconfirm>
+                </span>
+              )}
             </Space>
           </Space>
         </div>
