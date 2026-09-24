@@ -139,6 +139,37 @@ func (h *PostHandler) FeaturedPosts(c *gin.Context) {
 	OK(c, h.buildPostResponses(posts, c.GetUint("identityId")))
 }
 
+// WithdrawPost 作者撤回自己的帖子
+// @Summary 撤回帖子
+// @Tags post
+// @Produce json
+// @Param id path int true "帖子ID"
+// @Success 200 {object} Response
+// @Router /api/v1/posts/{id}/withdraw [delete]
+func (h *PostHandler) WithdrawPost(c *gin.Context) {
+	id := parseID(c)
+	if id == 0 {
+		return
+	}
+	identityID := c.GetUint("identityId")
+	err := h.posts.Withdraw(id, identityID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrPostNotFound):
+			Fail(c, http.StatusNotFound, constants.CodeNotFound, "post not found")
+		case errors.Is(err, service.ErrPostNotOwner):
+			Fail(c, http.StatusForbidden, constants.CodeForbidden, "can only withdraw your own post")
+		case errors.Is(err, service.ErrPostWithdrawn):
+			Fail(c, http.StatusConflict, constants.CodeConflict, "post already withdrawn")
+		default:
+			h.logger.Error("withdraw post", "error", err)
+			Fail(c, http.StatusInternalServerError, constants.CodeInternal, "withdraw post failed")
+		}
+		return
+	}
+	OK(c, gin.H{"id": id, "withdrawn": true})
+}
+
 func (h *PostHandler) buildPostResponses(posts []model.Post, identityID uint) []dto.PostResponse {
 	ids := make([]uint, 0, len(posts))
 	for _, p := range posts {

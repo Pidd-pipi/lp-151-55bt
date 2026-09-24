@@ -5,6 +5,7 @@ import (
 
 	"log/slog"
 
+	"github.com/gbtreehole/backend/internal/constants"
 	"github.com/gbtreehole/backend/internal/model"
 	"github.com/gbtreehole/backend/internal/repository"
 )
@@ -26,6 +27,10 @@ func NewLikeService(likes repository.LikeRepository, posts repository.PostReposi
 }
 
 func (s *likeService) Toggle(identityID uint, targetType string, targetID uint) (bool, int64, error) {
+	// 已撤回/未上架的内容不能再点赞，也不能借取消点赞操作触达。
+	if err := s.checkTargetAvailable(targetType, targetID); err != nil {
+		return false, 0, err
+	}
 	existing, err := s.likes.Find(identityID, targetType, targetID)
 	if err == nil {
 		if err := s.likes.Delete(existing.ID); err != nil {
@@ -79,6 +84,36 @@ func (s *likeService) adjustCount(targetType string, targetID uint, delta int) {
 			s.logger.Error("update comment like count", "error", err)
 		}
 	}
+}
+
+func (s *likeService) checkTargetAvailable(targetType string, targetID uint) error {
+	switch targetType {
+	case "post":
+		post, err := s.posts.FindByID(targetID)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return ErrContentUnavail
+			}
+			return err
+		}
+		if post.Status != constants.PostStatusPublished {
+			return ErrContentUnavail
+		}
+	case "comment":
+		comment, err := s.comments.FindByID(targetID)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return ErrContentUnavail
+			}
+			return err
+		}
+		if comment.Status != constants.CommentStatusPublished {
+			return ErrContentUnavail
+		}
+	default:
+		return ErrContentUnavail
+	}
+	return nil
 }
 
 func (s *likeService) IsLiked(identityID uint, targetType string, targetIDs []uint) (map[uint]bool, error) {

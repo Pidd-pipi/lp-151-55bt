@@ -17,6 +17,8 @@ type ReviewService interface {
 	List(page, pageSize int, status int) ([]model.ReviewQueue, int64, error)
 	Approve(queueID uint, adminID uint, note string) error
 	Reject(queueID uint, adminID uint, note string) error
+	// WithdrawPending 作者撤回内容时把仍在待审队列中的对应条目标记撤下。
+	WithdrawPending(targetType string, targetID uint) error
 }
 
 type reviewService struct {
@@ -46,6 +48,14 @@ func (s *reviewService) Enqueue(targetType string, targetID uint, content string
 
 func (s *reviewService) List(page, pageSize int, status int) ([]model.ReviewQueue, int64, error) {
 	return s.queue.List(page, pageSize, status)
+}
+
+// WithdrawPending 内容撤回后，审核队列里仍处于待审状态的对应条目随之撤下。
+func (s *reviewService) WithdrawPending(targetType string, targetID uint) error {
+	if _, err := s.queue.WithdrawPending(targetType, targetID); err != nil {
+		return fmt.Errorf("withdraw pending review for %s %d: %w", targetType, targetID, err)
+	}
+	return nil
 }
 
 func (s *reviewService) Approve(queueID uint, adminID uint, note string) error {
@@ -100,6 +110,10 @@ func (s *reviewService) approveTarget(targetType string, targetID uint) error {
 			}
 			return err
 		}
+		// 作者已撤回的内容不能被审核动作重新上架。
+		if post.Status == constants.PostStatusWithdrawn {
+			return nil
+		}
 		post.Status = constants.PostStatusPublished
 		post.UpdatedAt = time.Now()
 		return s.posts.Update(post)
@@ -110,6 +124,9 @@ func (s *reviewService) approveTarget(targetType string, targetID uint) error {
 				return nil
 			}
 			return err
+		}
+		if comment.Status == constants.CommentStatusWithdrawn {
+			return nil
 		}
 		comment.Status = constants.CommentStatusPublished
 		comment.UpdatedAt = time.Now()
@@ -129,6 +146,9 @@ func (s *reviewService) rejectTarget(targetType string, targetID uint) error {
 			}
 			return err
 		}
+		if post.Status == constants.PostStatusWithdrawn {
+			return nil
+		}
 		post.Status = constants.PostStatusRejected
 		post.UpdatedAt = time.Now()
 		return s.posts.Update(post)
@@ -139,6 +159,9 @@ func (s *reviewService) rejectTarget(targetType string, targetID uint) error {
 				return nil
 			}
 			return err
+		}
+		if comment.Status == constants.CommentStatusWithdrawn {
+			return nil
 		}
 		comment.Status = constants.CommentStatusRejected
 		comment.UpdatedAt = time.Now()

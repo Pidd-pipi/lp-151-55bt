@@ -3,7 +3,9 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/gbtreehole/backend/internal/constants"
 	"github.com/gbtreehole/backend/internal/model"
 	"gorm.io/gorm"
 )
@@ -17,6 +19,8 @@ type PostRepository interface {
 	ListHot(limit int) ([]model.Post, error)
 	ListFeatured(limit int) ([]model.Post, error)
 	IncrementView(id uint) error
+	Withdraw(id uint) (int64, error)
+	DecrementCommentCount(id uint) error
 }
 
 type postRepository struct {
@@ -87,9 +91,14 @@ func (r *postRepository) ListByIDs(ids []uint) ([]model.Post, error) {
 
 func (r *postRepository) ListHot(limit int) ([]model.Post, error) {
 	var posts []model.Post
-	// 按热度分值（点赞*10 + 评论*5 - 时间衰减）降序
-	if err := r.db.Preload("Identity").Preload("Tags").Where("status = ?", 1).
-		Order("(like_count * 10 + comment_count * 5 - TIMESTAMPDIFF(MINUTE, created_at, NOW()) * 0.001) DESC").
+	// 按热度分值（点赞*10 + 评论*5 - 创建分钟数*0.001 时间衰减）降序。
+	// 以 Unix 时间戳计算分钟差，兼容 MySQL 与 sqlite。
+	order := "(like_count * 10 + comment_count * 5 - (strftime('%s', 'now') - strftime('%s', created_at)) / 60.0 * 0.001) DESC"
+	if r.db.Dialector.Name() == "mysql" {
+		order = "(like_count * 10 + comment_count * 5 - TIMESTAMPDIFF(MINUTE, created_at, NOW()) * 0.001) DESC"
+	}
+	if err := r.db.Preload("Identity").Preload("Tags").Where("status = ?", constants.PostStatusPublished).
+		Order(order).
 		Limit(limit).Find(&posts).Error; err != nil {
 		return nil, fmt.Errorf("list hot posts: %w", err)
 	}
@@ -98,7 +107,7 @@ func (r *postRepository) ListHot(limit int) ([]model.Post, error) {
 
 func (r *postRepository) ListFeatured(limit int) ([]model.Post, error) {
 	var posts []model.Post
-	if err := r.db.Preload("Identity").Preload("Tags").Where("status = ? AND is_featured = ?", 1, true).
+	if err := r.db.Preload("Identity").Preload("Tags").Where("status = ? AND is_featured = ?", constants.PostStatusPublished, true).
 		Order("featured_at DESC").Limit(limit).Find(&posts).Error; err != nil {
 		return nil, fmt.Errorf("list featured posts: %w", err)
 	}
@@ -108,6 +117,33 @@ func (r *postRepository) ListFeatured(limit int) ([]model.Post, error) {
 func (r *postRepository) IncrementView(id uint) error {
 	if err := r.db.Model(&model.Post{}).Where("id = ?", id).UpdateColumn("view_count", gorm.Expr("view_count + 1")).Error; err != nil {
 		return fmt.Errorf("increment view: %w", err)
+	}
+	return nil
+}
+
+// Withdraw 仅在帖子尚未撤回时将其置为撤回状态，同时退出精选，返回受影响行数。
+func (r *postRepository) Withdraw(id uint) (int64, error) {
+	result := r.db.Model(&model.Post{}).
+		Where("id = ? AND status <> ?", id, constants.PostStatusWithdrawn).
+		Updates(map[string]any{
+			"status":      constants.PostStatusWithdrawn,
+			"is_featured": false,
+			"featured_at": nil,
+			"updated_at":  time.Now(),
+		})
+	if result.Error != nil {
+		return 0, fmt.Errorf("withdraw post: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// DecrementCommentCount 原子地将评论数减一，避免撤回评论时计数为负。
+func (r *postRepository) DecrementCommentCount(id uint) error {
+	result := r.db.Model(&model.Post{}).
+		Where("id = ? AND comment_count > 0", id).
+		UpdateColumn("comment_count", gorm.Expr("comment_count - 1"))
+	if result.Error != nil {
+		return fmt.Errorf("decrement post comment count: %w", result.Error)
 	}
 	return nil
 }

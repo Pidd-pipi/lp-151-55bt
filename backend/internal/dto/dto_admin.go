@@ -29,5 +29,5 @@ type ReviewItemResponse struct {
 type ListReviewRequest struct {
 	Page     int `json:"page" form:"page" validate:"omitempty,min=1"`
 	PageSize int `json:"pageSize" form:"page_size" validate:"omitempty,min=1,max=100"`
-	Status   int `json:"status" form:"status" validate:"omitempty,oneof=1 2 3"`
+	Status   int `json:"status" form:"status" validate:"omitempty,oneof=1 2 3 4"`
 }

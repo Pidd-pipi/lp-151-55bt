@@ -98,6 +98,26 @@ paths:
       responses:
         '200':
           description: 帖子详情
+        '404':
+          description: 帖子不存在或已撤回
+  /api/v1/posts/{id}/withdraw:
+    delete:
+      summary: 作者撤回帖子（需登录）
+      description: 撤回后帖子退出最新/热度/精选/标签列表，详情不可访问，审核队列对应条目撤下
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 撤回成功
+        '403':
+          description: 非作者无权撤回
+        '404':
+          description: 帖子不存在
+        '409':
+          description: 帖子已撤回，无需重复操作
   /api/v1/posts/{id}/comments:
     get:
       summary: 帖子评论列表
@@ -130,6 +150,24 @@ paths:
       responses:
         '200':
           description: 评论与命中信息
+  /api/v1/comments/{id}/withdraw:
+    delete:
+      summary: 作者撤回评论（需登录）
+      description: 撤回后评论从楼层消失，帖子评论数减少，审核队列对应条目撤下
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 撤回成功
+        '403':
+          description: 非作者无权撤回
+        '404':
+          description: 评论不存在
+        '409':
+          description: 评论已撤回，无需重复操作
   /api/v1/tags:
     get:
       summary: 标签列表

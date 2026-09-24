@@ -29,6 +29,15 @@ client.interceptors.response.use(
   },
 )
 
+export function extractError(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const data = (error as { response?: { data?: ApiResponse } }).response?.data
+    if (data?.message) return data.message
+  }
+  if (error instanceof Error && error.message) return error.message
+  return '请求失败'
+}
+
 export async function request<T>(method: 'get' | 'post' | 'delete', url: string, data?: unknown): Promise<T> {
   const response = await client.request<ApiResponse<T>>({
     method,

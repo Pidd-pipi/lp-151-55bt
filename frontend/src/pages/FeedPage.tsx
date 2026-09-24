@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { request } from '../api/client'
 import type { PageResult, Post } from '../types'
 import { getIdentity } from '../utils/storage'
+import WithdrawButton from '../components/WithdrawButton'
 
 export default function FeedPage() {
   const navigate = useNavigate()
@@ -93,6 +94,17 @@ export default function FeedPage() {
               <Typography.Text type="secondary"><CommentOutlined /> {post.commentCount}</Typography.Text>
               <Typography.Text type="secondary"><EyeOutlined /> {post.viewCount}</Typography.Text>
               {post.isFeatured && <Typography.Text type="warning"><StarOutlined /> 精选</Typography.Text>}
+              <span onClick={(e) => e.stopPropagation()}>
+                <WithdrawButton
+                  authorIdentityId={post.identityId}
+                  url={`/posts/${post.id}/withdraw`}
+                  title="撤回这条帖子？"
+                  onWithdrawn={() => {
+                    setPosts((prev) => prev.filter((item) => item.id !== post.id))
+                    setFeatured((prev) => prev.filter((item) => item.id !== post.id))
+                  }}
+                />
+              </span>
             </Space>
           </Space>
         </div>

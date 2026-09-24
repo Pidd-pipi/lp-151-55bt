@@ -58,6 +58,7 @@ export default function AdminPage() {
                   { key: '1', label: '待审核' },
                   { key: '2', label: '已放行' },
                   { key: '3', label: '已屏蔽' },
+                  { key: '4', label: '已撤回' },
                 ]}
               />
               <List
@@ -79,7 +80,7 @@ export default function AdminPage() {
                         <Space>
                           <Tag color={item.targetType === 'post' ? 'blue' : 'purple'}>{item.targetType === 'post' ? '帖子' : '评论'}</Tag>
                           <Tag color="red">{item.hitWords || '敏感词'}</Tag>
-                          <Typography.Text type="secondary">状态: {item.status === 1 ? '待审核' : item.status === 2 ? '已放行' : '已屏蔽'}</Typography.Text>
+                          <Typography.Text type="secondary">状态: {item.status === 1 ? '待审核' : item.status === 2 ? '已放行' : item.status === 3 ? '已屏蔽' : '作者已撤回'}</Typography.Text>
                         </Space>
                       }
                       description={<Typography.Paragraph>{item.content}</Typography.Paragraph>}

@@ -3,7 +3,9 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/gbtreehole/backend/internal/constants"
 	"github.com/gbtreehole/backend/internal/model"
 	"gorm.io/gorm"
 )
@@ -14,6 +16,7 @@ type CommentRepository interface {
 	FindByID(id uint) (*model.Comment, error)
 	ListByPostID(postID uint, page, pageSize int, status int) ([]model.Comment, int64, error)
 	ListByIDs(ids []uint) ([]model.Comment, error)
+	Withdraw(id uint) (int64, error)
 }
 
 type commentRepository struct {
@@ -74,4 +77,18 @@ func (r *commentRepository) ListByIDs(ids []uint) ([]model.Comment, error) {
 		return nil, fmt.Errorf("list comments by ids: %w", err)
 	}
 	return comments, nil
+}
+
+// Withdraw 仅在评论尚未撤回时将其置为撤回状态，返回受影响行数。
+func (r *commentRepository) Withdraw(id uint) (int64, error) {
+	result := r.db.Model(&model.Comment{}).
+		Where("id = ? AND status <> ?", id, constants.CommentStatusWithdrawn).
+		Updates(map[string]any{
+			"status":     constants.CommentStatusWithdrawn,
+			"updated_at": time.Now(),
+		})
+	if result.Error != nil {
+		return 0, fmt.Errorf("withdraw comment: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }

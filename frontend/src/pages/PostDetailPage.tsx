@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Card, Space, Typography, Button, Input, List, message, Tag, Avatar } from 'antd'
+import { Card, Space, Typography, Button, Input, List, message, Tag, Avatar, Empty } from 'antd'
 import { LikeOutlined, CommentOutlined, EyeOutlined } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { request } from '../api/client'
 import type { Comment, PageResult, Post } from '../types'
 import { getIdentity } from '../utils/storage'
+import WithdrawButton from '../components/WithdrawButton'
 
 export default function PostDetailPage() {
   const { id } = useParams()
@@ -12,15 +13,23 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [commentText, setCommentText] = useState('')
+  const [notFound, setNotFound] = useState(false)
 
   const load = async () => {
     try {
       const postData = await request<Post>('get', `/posts/${id}`)
       setPost(postData)
+      setNotFound(false)
       const commentData = await request<PageResult<Comment>>('get', `/posts/${id}/comments`, { page: 1, page_size: 20 })
       setComments(commentData.items)
     } catch (e) {
-      message.error((e as Error).message)
+      const status = (e as { response?: { status?: number } }).response?.status
+      if (status === 404) {
+        setNotFound(true)
+        setPost(null)
+      } else {
+        message.error((e as Error).message)
+      }
     }
   }
 
@@ -70,6 +79,17 @@ export default function PostDetailPage() {
     }
   }
 
+  if (notFound) {
+    return (
+      <div>
+        <Button type="link" onClick={() => navigate(-1)}>返回</Button>
+        <Empty description="帖子不存在或已被撤回" style={{ marginTop: 64 }}>
+          <Button type="primary" onClick={() => navigate('/')}>回到首页</Button>
+        </Empty>
+      </div>
+    )
+  }
+
   if (!post) return <Typography.Text>加载中...</Typography.Text>
 
   return (
@@ -101,6 +121,14 @@ export default function PostDetailPage() {
               </Button>
               <Typography.Text type="secondary"><CommentOutlined /> {post.commentCount}</Typography.Text>
               <Typography.Text type="secondary"><EyeOutlined /> {post.viewCount}</Typography.Text>
+              <WithdrawButton
+                authorIdentityId={post.identityId}
+                url={`/posts/${post.id}/withdraw`}
+                title="撤回这条帖子？"
+                description="撤回后帖子将从最新、热度、精选和标签列表消失，详情也无法再访问，且无法恢复。"
+                size="middle"
+                onWithdrawn={() => navigate('/')}
+              />
             </Space>
           </div>
         </Space>
@@ -121,6 +149,14 @@ export default function PostDetailPage() {
                 <Button key="like" type="text" icon={<LikeOutlined />} onClick={() => likeComment(item.id)}>
                   {item.likeCount}
                 </Button>,
+                <WithdrawButton
+                  key="withdraw"
+                  authorIdentityId={item.identityId}
+                  url={`/comments/${item.id}/withdraw`}
+                  title="撤回这条评论？"
+                  description="撤回后评论将从楼层消失，帖子评论数也会减少，且无法恢复。"
+                  onWithdrawn={load}
+                />,
               ]}
             >
               <List.Item.Meta

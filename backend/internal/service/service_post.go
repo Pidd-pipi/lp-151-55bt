@@ -12,7 +12,13 @@ import (
 	"github.com/gbtreehole/backend/internal/repository"
 )
 
-var ErrPostNotFound = errors.New("post not found")
+var (
+	ErrPostNotFound    = errors.New("post not found")
+	ErrPostNotOwner    = errors.New("post not owned by identity")
+	ErrPostWithdrawn   = errors.New("post already withdrawn")
+	ErrContentUnavail  = errors.New("content not available")
+	ErrCommentNotOwner = errors.New("comment not owned by identity")
+)
 
 type PostService interface {
 	Create(identityID uint, title, content string, images []string, tagNames []string) (*model.Post, []string, bool, error)
@@ -23,14 +29,16 @@ type PostService interface {
 	DailyFeatured(limit int) ([]model.Post, error)
 	IncrementView(id uint) error
 	SetFeatured(id uint, featured bool) error
+	// Withdraw 作者撤回自己的帖子：退出列表与精选、详情不可再访问，并撤下审核条目。
+	Withdraw(id, identityID uint) error
 }
 
 type postService struct {
-	posts  repository.PostRepository
-	tags   TagService
+	posts     repository.PostRepository
+	tags      TagService
 	sensitive SensitiveWordService
-	review ReviewService
-	logger *slog.Logger
+	review    ReviewService
+	logger    *slog.Logger
 }
 
 func NewPostService(posts repository.PostRepository, tags TagService, sensitive SensitiveWordService, review ReviewService, logger *slog.Logger) PostService {
@@ -92,6 +100,10 @@ func (s *postService) GetByID(id uint) (*model.Post, error) {
 		}
 		return nil, err
 	}
+	// 撤回（以及待审/屏蔽）的帖子详情不再可访问，对所有访问者一视同仁。
+	if post.Status != constants.PostStatusPublished {
+		return nil, ErrPostNotFound
+	}
 	return post, nil
 }
 
@@ -149,6 +161,10 @@ func (s *postService) SetFeatured(id uint, featured bool) error {
 		}
 		return err
 	}
+	// 已撤回的帖子不能再被手动精选；取消精选对它无意义但无害，放行即可。
+	if featured && post.Status == constants.PostStatusWithdrawn {
+		return ErrPostNotFound
+	}
 	post.IsFeatured = featured
 	if featured {
 		now := time.Now()
@@ -158,4 +174,29 @@ func (s *postService) SetFeatured(id uint, featured bool) error {
 	}
 	post.UpdatedAt = time.Now()
 	return s.posts.Update(post)
+}
+
+// Withdraw 作者撤回自己的帖子。
+// 非作者拿到编号也不能撤回；已经撤回的重复操作返回 ErrPostWithdrawn。
+func (s *postService) Withdraw(id, identityID uint) error {
+	post, err := s.posts.FindByID(id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrPostNotFound
+		}
+		return err
+	}
+	if post.IdentityID != identityID {
+		return ErrPostNotOwner
+	}
+	if post.Status == constants.PostStatusWithdrawn {
+		return ErrPostWithdrawn
+	}
+	if _, err := s.posts.Withdraw(id); err != nil {
+		return err
+	}
+	if err := s.review.WithdrawPending("post", id); err != nil {
+		s.logger.Error("withdraw post review queue item", "postId", id, "error", err)
+	}
+	return nil
 }
